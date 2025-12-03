@@ -92,6 +92,6 @@ app.delete("/api/tasks/:id", (req, res) => {
   res.status(204).send();
 });
 
-const port = process.env.PORT || 8080;
+const port = process.env.PORT || 3001;
 app.listen(port, () => console.log(`Server running on port ${port}`));
 
