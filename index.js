@@ -1,72 +1,97 @@
-require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
-const pool = require("./db");
 
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+// In-memory "DB"
+let tasks = [];
+let nextId = 1;
 
 app.get("/health", (req, res) => {
   res.json({ status: "ok" });
 });
 
 // GET all tasks
-app.get("/api/tasks", async (req, res) => {
-  try {
-    const [rows] = await pool.query("SELECT * FROM tasks ORDER BY created_at DESC");
-    res.json(rows);
-  } catch (err) {
-    res.status(500).json({ error: "Database error" });
-  }
+app.get("/api/tasks", (req, res) => {
+  // sort by created_at desc (optional)
+  const sorted = [...tasks].sort(
+    (a, b) => new Date(b.created_at) - new Date(a.created_at)
+  );
+  res.json(sorted);
 });
 
 // CREATE task
-app.post("/api/tasks", async (req, res) => {
+app.post("/api/tasks", (req, res) => {
   const { title, description } = req.body;
-  if (!title) return res.status(400).json({ error: "Title required" });
 
-  try {
-    const [result] = await pool.query(
-      "INSERT INTO tasks (title, description) VALUES (?,?)",
-      [title, description || null]
-    );
-    res.status(201).json({ id: result.insertId, title, description });
-  } catch {
-    res.status(500).json({ error: "DB insert failed" });
+  if (!title) {
+    return res.status(400).json({ error: "Title required" });
   }
+
+  const newTask = {
+    id: nextId++,
+    title,
+    description: description || null,
+    completed: false,
+    created_at: new Date().toISOString(),
+  };
+
+  tasks.push(newTask);
+  res.status(201).json(newTask);
 });
 
 // UPDATE task
-app.put("/api/tasks/:id", async (req, res) => {
-  const { id } = req.params;
+app.put("/api/tasks/:id", (req, res) => {
+  const id = Number(req.params.id);
   const { title, description } = req.body;
 
-  if (!title) return res.status(400).json({ error: "Title required" });
-
-  try {
-    await pool.query("UPDATE tasks SET title=?, description=? WHERE id=?", [title, description, id]);
-    res.json({ id, title, description });
-  } catch {
-    res.status(500).json({ error: "DB update failed" });
+  if (!title) {
+    return res.status(400).json({ error: "Title required" });
   }
+
+  const index = tasks.findIndex((t) => t.id === id);
+  if (index === -1) {
+    return res.status(404).json({ error: "Task not found" });
+  }
+
+  tasks[index] = {
+    ...tasks[index],
+    title,
+    description: description ?? tasks[index].description,
+  };
+
+  res.json(tasks[index]);
 });
 
 // TOGGLE task
-app.patch("/api/tasks/:id/toggle", async (req, res) => {
-  const { id } = req.params;
+app.patch("/api/tasks/:id/toggle", (req, res) => {
+  const id = Number(req.params.id);
 
-  await pool.query("UPDATE tasks SET completed = NOT completed WHERE id = ?", [id]);
+  const task = tasks.find((t) => t.id === id);
+  if (!task) {
+    return res.status(404).json({ error: "Task not found" });
+  }
 
-  const [rows] = await pool.query("SELECT * FROM tasks WHERE id=?", [id]);
-  res.json(rows[0]);
+  task.completed = !task.completed;
+  res.json(task);
 });
 
 // DELETE task
-app.delete("/api/tasks/:id", async (req, res) => {
-  await pool.query("DELETE FROM tasks WHERE id=?", [req.params.id]);
+app.delete("/api/tasks/:id", (req, res) => {
+  const id = Number(req.params.id);
+
+  const beforeLen = tasks.length;
+  tasks = tasks.filter((t) => t.id !== id);
+
+  if (tasks.length === beforeLen) {
+    return res.status(404).json({ error: "Task not found" });
+  }
+
   res.status(204).send();
 });
 
 const port = process.env.PORT || 8080;
 app.listen(port, () => console.log(`Server running on port ${port}`));
+
